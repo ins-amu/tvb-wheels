@@ -1,0 +1,175 @@
+name: Build and publish wheels
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Upstream the-virtual-brain/tvb-root ref (commit, branch, or tag)"
+        required: false
+        default: "ef1d60b8d3d21f74b723023d17820bcabd98185d"
+      version_suffix:
+        description: "PEP 440 suffix appended to upstream version (avoids PyPI shadowing)"
+        required: false
+        default: ".post1"
+      release_tag:
+        description: "GitHub Release tag (defaults to v<resolved_version>)"
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, windows-latest]
+
+    steps:
+      - name: Checkout tvb-wheels
+        uses: actions/checkout@v4
+
+      - name: Checkout upstream tvb-root
+        uses: actions/checkout@v4
+        with:
+          repository: the-virtual-brain/tvb-root
+          ref: ${{ inputs.ref || 'ef1d60b8d3d21f74b723023d17820bcabd98185d' }}
+          path: upstream
+          submodules: true
+
+      - name: Setup Python for patching
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Patch upstream for SSE4.2 portability and version isolation
+        shell: bash
+        run: |
+          EXPLICIT_VERSION=""
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_name }}" == v* ]]; then
+            EXPLICIT_VERSION="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ inputs.release_tag }}" && "${{ inputs.release_tag }}" == v* ]]; then
+            EXPLICIT_VERSION="${{ inputs.release_tag }}"
+            EXPLICIT_VERSION="${EXPLICIT_VERSION#v}"
+          fi
+          python scripts/patch_upstream.py \
+            --tvb-library-dir upstream/tvb_library \
+            --version-suffix "${{ inputs.version_suffix || '.post1' }}" \
+            --explicit-version "$EXPLICIT_VERSION"
+          git -C upstream diff tvb_library/CMakeLists.txt tvb_library/pyproject.toml
+
+      - name: Build cp312-abi3 wheels with cibuildwheel
+        uses: pypa/cibuildwheel@v4.2.1
+        with:
+          package-dir: upstream/tvb_library
+        env:
+          # tvb-library sets py-api = "cp312" (stable ABI >= 3.12), so one
+          # cp312-abi3 wheel serves CPython 3.12, 3.13, 3.14+.
+          CIBW_BUILD: "cp312-*"
+          CIBW_SKIP: "pp* *i686 *win32 *musl* *universal2 cp38-* cp39-* cp310-* cp311-*"
+          CIBW_TEST_COMMAND: >-
+            python -c "import tvb.simulator.backend.cpp_hybrid as cph; import tvb.simulator.backend.cpp_hybrid._cpp_hybrid as m; print(m.__file__); assert m.__file__.endswith(('.so', '.pyd')); tbl = m.generic_model_table(); print('builtin generic models:', len(tbl)); assert len(tbl) >= 27"
+
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          retention-days: 1
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download built wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Generate SHA256SUMS and resolve release tag
+        id: meta
+        run: |
+          cd release-assets
+          ls -la
+          sha256sum *.whl > SHA256SUMS
+          cat SHA256SUMS
+          TAG="${{ inputs.release_tag }}"
+          if [[ -z "$TAG" && "${{ github.event_name }}" == "push" && "${{ github.ref_name }}" == v* ]]; then
+            TAG="${{ github.ref_name }}"
+          fi
+          if [[ -z "$TAG" ]]; then
+            FIRST_WHL="$(ls -1 *.whl | head -n 1)"
+            VER="$(python3 -c 'import sys; print(sys.argv[1].split("-")[1])' "$FIRST_WHL")"
+            TAG="v${VER}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          UPSTREAM_REF: ${{ inputs.ref || 'ef1d60b8d3d21f74b723023d17820bcabd98185d' }}
+        run: |
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/*.whl release-assets/SHA256SUMS \
+              --repo "${{ github.repository }}" \
+              --clobber
+          else
+            gh release create "$TAG" release-assets/*.whl release-assets/SHA256SUMS \
+              --repo "${{ github.repository }}" \
+              --title "$TAG" \
+              --notes "Prebuilt cp312-abi3 binary wheels for \`tvb-library\` (upstream \`the-virtual-brain/tvb-root@${UPSTREAM_REF}\`, SSE4.2 portable x86_64)."
+          fi
+
+  pages:
+    name: Deploy PEP 503 index to GitHub Pages
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout tvb-wheels
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate PEP 503 static index across all releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/generate_index.py --repo "${{ github.repository }}" --out-dir dist
+          find dist -type f | sort
+          cat dist/simple/tvb-library/index.html
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
