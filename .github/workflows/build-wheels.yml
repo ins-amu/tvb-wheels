@@ -10,7 +10,7 @@ on:
       version_suffix:
         description: "PEP 440 suffix appended to upstream version (avoids PyPI shadowing)"
         required: false
-        default: ".post1"
+        default: ".post2"
       release_tag:
         description: "GitHub Release tag (defaults to v<resolved_version>)"
         required: false
@@ -29,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, windows-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-latest]
 
     steps:
       - name: Checkout tvb-wheels
@@ -60,11 +60,21 @@ jobs:
           fi
           python scripts/patch_upstream.py \
             --tvb-library-dir upstream/tvb_library \
-            --version-suffix "${{ inputs.version_suffix || '.post1' }}" \
+            --version-suffix "${{ inputs.version_suffix || '.post2' }}" \
             --explicit-version "$EXPLICIT_VERSION"
           git -C upstream diff tvb_library/CMakeLists.txt tvb_library/pyproject.toml
 
-      - name: Build cp312-abi3 wheels with cibuildwheel
+      - name: Configure pip constraints for macOS x86_64 (numba/llvmlite wheels)
+        if: matrix.os == 'macos-15-intel'
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/intel-mac-constraints.txt" <<'EOF'
+          numba<0.63
+          llvmlite<0.46
+          EOF
+          echo "PIP_CONSTRAINT=$RUNNER_TEMP/intel-mac-constraints.txt" >> "$GITHUB_ENV"
+
+      - name: Build cp312-abi3 wheels with cibuildwheel (CPython >= 3.12)
         uses: pypa/cibuildwheel@v4.2.1
         with:
           package-dir: upstream/tvb_library
@@ -72,7 +82,25 @@ jobs:
           # tvb-library sets py-api = "cp312" (stable ABI >= 3.12), so one
           # cp312-abi3 wheel serves CPython 3.12, 3.13, 3.14+.
           CIBW_BUILD: "cp312-*"
-          CIBW_SKIP: "pp* *i686 *win32 *musl* *universal2 cp38-* cp39-* cp310-* cp311-*"
+          CIBW_SKIP: "*i686 *win32 *musl* *universal2"
+          CIBW_TEST_COMMAND: >-
+            python -c "import tvb.simulator.backend.cpp_hybrid as cph; import tvb.simulator.backend.cpp_hybrid._cpp_hybrid as m; print(m.__file__); assert m.__file__.endswith(('.so', '.pyd')); tbl = m.generic_model_table(); print('builtin generic models:', len(tbl)); assert len(tbl) >= 27"
+
+      - name: Patch upstream for cp311-cp311 build (non-abi3)
+        shell: bash
+        run: |
+          python scripts/patch_upstream.py \
+            --tvb-library-dir upstream/tvb_library \
+            --cp311-only
+          git -C upstream diff tvb_library/CMakeLists.txt tvb_library/pyproject.toml
+
+      - name: Build cp311-cp311 wheels with cibuildwheel (CPython 3.11)
+        uses: pypa/cibuildwheel@v4.2.1
+        with:
+          package-dir: upstream/tvb_library
+        env:
+          CIBW_BUILD: "cp311-*"
+          CIBW_SKIP: "*i686 *win32 *musl* *universal2"
           CIBW_TEST_COMMAND: >-
             python -c "import tvb.simulator.backend.cpp_hybrid as cph; import tvb.simulator.backend.cpp_hybrid._cpp_hybrid as m; print(m.__file__); assert m.__file__.endswith(('.so', '.pyd')); tbl = m.generic_model_table(); print('builtin generic models:', len(tbl)); assert len(tbl) >= 27"
 
@@ -130,7 +158,7 @@ jobs:
             gh release create "$TAG" release-assets/*.whl release-assets/SHA256SUMS \
               --repo "${{ github.repository }}" \
               --title "$TAG" \
-              --notes "Prebuilt cp312-abi3 binary wheels for \`tvb-library\` (upstream \`the-virtual-brain/tvb-root@${UPSTREAM_REF}\`, SSE4.2 portable x86_64)."
+              --notes "Prebuilt cp311-cp311 and cp312-abi3 binary wheels for \`tvb-library\` (upstream \`the-virtual-brain/tvb-root@${UPSTREAM_REF}\`, SSE4.2 portable x86_64)."
           fi
 
   pages:
