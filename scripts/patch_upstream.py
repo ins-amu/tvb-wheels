@@ -80,6 +80,18 @@ def patch_for_cp311(tvb_library_dir: Path) -> None:
         raise RuntimeError(f"Expected {py_api_target!r} in {pyproject_path}")
     pyproject_text = pyproject_text.replace(py_api_target, '# py-api disabled for cp311-cp311 build', 1)
     pyproject_path.write_text(pyproject_text, encoding="utf-8")
+
+    dfungen_path = tvb_library_dir / "tvb" / "simulator" / "backend" / "cpp_hybrid" / "dfungen.py"
+    dfungen_text = dfungen_path.read_text(encoding="utf-8")
+    fstring_target = '{" from the supported set" if args.only_supported else ""}'
+    if fstring_target in dfungen_text:
+        dfungen_text = dfungen_text.replace(
+            fstring_target,
+            "{' from the supported set' if args.only_supported else ''}",
+            1,
+        )
+        dfungen_path.write_text(dfungen_text, encoding="utf-8")
+
     print(f"Patched {tvb_library_dir} for non-abi3 cp311-cp311 build")
 
 

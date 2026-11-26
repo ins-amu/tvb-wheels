@@ -64,7 +64,7 @@ jobs:
             --explicit-version "$EXPLICIT_VERSION"
           git -C upstream diff tvb_library/CMakeLists.txt tvb_library/pyproject.toml
 
-      - name: Configure pip constraints for macOS x86_64 (numba/llvmlite wheels)
+      - name: Configure pip constraints and deployment target for macOS x86_64
         if: matrix.os == 'macos-15-intel'
         shell: bash
         run: |
@@ -73,6 +73,7 @@ jobs:
           llvmlite<0.46
           EOF
           echo "PIP_CONSTRAINT=$RUNNER_TEMP/intel-mac-constraints.txt" >> "$GITHUB_ENV"
+          echo "CIBW_ENVIRONMENT_MACOS=MACOSX_DEPLOYMENT_TARGET=10.15" >> "$GITHUB_ENV"
 
       - name: Build cp312-abi3 wheels with cibuildwheel (CPython >= 3.12)
         uses: pypa/cibuildwheel@v4.2.1
