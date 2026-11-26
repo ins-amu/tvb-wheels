@@ -6,11 +6,11 @@ on:
       ref:
         description: "Upstream the-virtual-brain/tvb-root ref (commit, branch, or tag)"
         required: false
-        default: "ef1d60b8d3d21f74b723023d17820bcabd98185d"
+        default: "bae00b76645648d82753a2173dd3f37fc515f020"
       version_suffix:
         description: "PEP 440 suffix appended to upstream version (avoids PyPI shadowing)"
         required: false
-        default: ".post2"
+        default: ".post3"
       release_tag:
         description: "GitHub Release tag (defaults to v<resolved_version>)"
         required: false
@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: the-virtual-brain/tvb-root
-          ref: ${{ inputs.ref || 'ef1d60b8d3d21f74b723023d17820bcabd98185d' }}
+          ref: ${{ inputs.ref || 'bae00b76645648d82753a2173dd3f37fc515f020' }}
           path: upstream
           submodules: true
 
@@ -60,7 +60,7 @@ jobs:
           fi
           python scripts/patch_upstream.py \
             --tvb-library-dir upstream/tvb_library \
-            --version-suffix "${{ inputs.version_suffix || '.post2' }}" \
+            --version-suffix "${{ inputs.version_suffix || '.post3' }}" \
             --explicit-version "$EXPLICIT_VERSION"
           git -C upstream diff tvb_library/CMakeLists.txt tvb_library/pyproject.toml
 
@@ -149,7 +149,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
-          UPSTREAM_REF: ${{ inputs.ref || 'ef1d60b8d3d21f74b723023d17820bcabd98185d' }}
+          UPSTREAM_REF: ${{ inputs.ref || 'bae00b76645648d82753a2173dd3f37fc515f020' }}
         run: |
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/*.whl release-assets/SHA256SUMS \
@@ -205,7 +205,8 @@ jobs:
         run: |
           for i in $(seq 1 15); do
             if gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].name' | grep -qx 'github-pages'; then
-              echo "github-pages artifact visible (attempt $i)"
+              echo "github-pages artifact visible (attempt $i); waiting 15s for API replica propagation"
+              sleep 15
               exit 0
             fi
             sleep 2
