@@ -45,3 +45,7 @@ gh workflow run build-wheels.yml \
 ```
 
 Or push a tag matching `v*` (e.g. `v3.0.0a1.post3`) after updating the default `ref` in `build-wheels.yml`. Every run builds all 5 platforms × `{cp311, cp312-abi3}`, publishes a GitHub Release with `SHA256SUMS`, and regenerates the PEP 503 index across **all** existing releases so older versions remain installable.
+
+## Nightly Upstream Sync
+
+[`.github/workflows/sync-tvbkh.yml`](.github/workflows/sync-tvbkh.yml) runs nightly at `03:00 UTC` (and via `workflow_dispatch`), compares the HEAD of `the-virtual-brain/tvb-root`'s `tvbkh` branch against the commit recorded in the latest release, and invokes `build-wheels.yml` with an incremented `.postN` tag whenever `tvb_library/` has new commits.

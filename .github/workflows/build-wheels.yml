@@ -1,6 +1,23 @@
 name: Build and publish wheels
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Upstream the-virtual-brain/tvb-root ref (commit, branch, or tag)"
+        required: false
+        type: string
+        default: "bae00b76645648d82753a2173dd3f37fc515f020"
+      version_suffix:
+        description: "PEP 440 suffix appended to upstream version (avoids PyPI shadowing)"
+        required: false
+        type: string
+        default: ".post3"
+      release_tag:
+        description: "GitHub Release tag (defaults to v<resolved_version>)"
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       ref:

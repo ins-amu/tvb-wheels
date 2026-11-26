@@ -1,0 +1,111 @@
+name: Nightly sync with upstream tvbkh
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  check:
+    name: Check upstream tvbkh branch
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      ref: ${{ steps.check.outputs.ref }}
+      version_suffix: ${{ steps.check.outputs.version_suffix }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+
+    steps:
+      - name: Compare tvbkh HEAD against latest published release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import re
+          import sys
+          import urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+
+          def gh_json(path: str):
+              req = urllib.request.Request(
+                  f"https://api.github.com/{path}",
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "User-Agent": "tvb-wheels-nightly-sync",
+                  },
+              )
+              with urllib.request.urlopen(req) as resp:
+                  return json.loads(resp.read().decode("utf-8"))
+
+          branch = gh_json("repos/the-virtual-brain/tvb-root/branches/tvbkh")
+          latest_sha = branch["commit"]["sha"]
+
+          releases = [
+              r for r in gh_json(f"repos/{repo}/releases?per_page=30")
+              if not r.get("draft")
+          ]
+
+          last_sha = ""
+          max_post = 0
+          for rel in releases:
+              tag = rel.get("tag_name", "")
+              m_post = re.search(r"\.post(\d+)$", tag)
+              if m_post:
+                  max_post = max(max_post, int(m_post.group(1)))
+              if not last_sha:
+                  m_sha = re.search(r"tvb-root@([0-9a-f]{40})", rel.get("body") or "")
+                  if m_sha:
+                      last_sha = m_sha.group(1)
+
+          print(f"Latest tvbkh SHA: {latest_sha}", file=sys.stderr)
+          print(f"Last built SHA:   {last_sha or '<none>'}", file=sys.stderr)
+
+          if last_sha == latest_sha:
+              print("should_build=false")
+              raise SystemExit(0)
+
+          # Skip rebuilds if commits since last_sha did not touch tvb_library/.
+          if last_sha:
+              try:
+                  cmp_data = gh_json(
+                      f"repos/the-virtual-brain/tvb-root/compare/{last_sha}...{latest_sha}"
+                  )
+                  changed_files = [f["filename"] for f in cmp_data.get("files", [])]
+                  if changed_files and not any(f.startswith("tvb_library/") for f in changed_files):
+                      print("No files under tvb_library/ changed; skipping build.", file=sys.stderr)
+                      print("should_build=false")
+                      raise SystemExit(0)
+              except Exception as exc:
+                  print(f"Compare check fell back to rebuild ({exc})", file=sys.stderr)
+
+          next_post = max_post + 1
+          suffix = f".post{next_post}"
+          tag = f"v3.0.0a1{suffix}"
+          print(f"Triggering build for {latest_sha} as {tag}", file=sys.stderr)
+          print("should_build=true")
+          print(f"ref={latest_sha}")
+          print(f"version_suffix={suffix}")
+          print(f"release_tag={tag}")
+          PY
+
+  build-and-publish:
+    name: Build and publish wheels
+    needs: check
+    if: needs.check.outputs.should_build == 'true'
+    uses: ./.github/workflows/build-wheels.yml
+    with:
+      ref: ${{ needs.check.outputs.ref }}
+      version_suffix: ${{ needs.check.outputs.version_suffix }}
+      release_tag: ${{ needs.check.outputs.release_tag }}
+    secrets: inherit
