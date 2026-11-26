@@ -170,6 +170,20 @@ jobs:
         with:
           path: dist
 
+      - name: Wait for Pages artifact visibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 15); do
+            if gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].name' | grep -qx 'github-pages'; then
+              echo "github-pages artifact visible (attempt $i)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for github-pages artifact" >&2
+          exit 1
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
