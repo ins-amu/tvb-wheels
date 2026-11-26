@@ -8,7 +8,7 @@ Prebuilt cross-platform binary wheels (`cp312-abi3`) for [`tvb-library`](https:/
 |---|---|---|---|
 | Linux (`manylinux_2_28`) | `x86_64` | `ubuntu-latest` | `-msse4.2` (replaces `-march=native` for portability) |
 | Linux (`manylinux_2_28`) | `aarch64` | `ubuntu-24.04-arm` | Baseline ARM64 |
-| macOS | `arm64` | `macos-14` | Apple Silicon |
+| macOS | `arm64` | `macos-15` | Apple Silicon |
 | Windows | `AMD64` | `windows-latest` | Baseline x64 (MSVC) |
 
 All wheels target the CPython 3.12 stable ABI (`cp312-abi3`) and work on CPython ≥ 3.12 (3.12, 3.13, 3.14+).
