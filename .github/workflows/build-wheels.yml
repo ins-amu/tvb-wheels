@@ -7,12 +7,12 @@ on:
         description: "Upstream the-virtual-brain/tvb-root ref (commit, branch, or tag)"
         required: false
         type: string
-        default: "bae00b76645648d82753a2173dd3f37fc515f020"
+        default: "3b4e3c6c69c0f107756fd4d5f397e05ef38feff4"
       version_suffix:
         description: "PEP 440 suffix appended to upstream version (avoids PyPI shadowing)"
         required: false
         type: string
-        default: ".post3"
+        default: ".post4"
       release_tag:
         description: "GitHub Release tag (defaults to v<resolved_version>)"
         required: false
@@ -23,11 +23,11 @@ on:
       ref:
         description: "Upstream the-virtual-brain/tvb-root ref (commit, branch, or tag)"
         required: false
-        default: "bae00b76645648d82753a2173dd3f37fc515f020"
+        default: "3b4e3c6c69c0f107756fd4d5f397e05ef38feff4"
       version_suffix:
         description: "PEP 440 suffix appended to upstream version (avoids PyPI shadowing)"
         required: false
-        default: ".post3"
+        default: ".post4"
       release_tag:
         description: "GitHub Release tag (defaults to v<resolved_version>)"
         required: false
@@ -56,7 +56,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: the-virtual-brain/tvb-root
-          ref: ${{ inputs.ref || 'bae00b76645648d82753a2173dd3f37fc515f020' }}
+          ref: ${{ inputs.ref || '3b4e3c6c69c0f107756fd4d5f397e05ef38feff4' }}
           path: upstream
           submodules: true
 
@@ -77,7 +77,7 @@ jobs:
           fi
           python scripts/patch_upstream.py \
             --tvb-library-dir upstream/tvb_library \
-            --version-suffix "${{ inputs.version_suffix || '.post3' }}" \
+            --version-suffix "${{ inputs.version_suffix || '.post4' }}" \
             --explicit-version "$EXPLICIT_VERSION"
           git -C upstream diff tvb_library/CMakeLists.txt tvb_library/pyproject.toml
 
@@ -166,7 +166,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
-          UPSTREAM_REF: ${{ inputs.ref || 'bae00b76645648d82753a2173dd3f37fc515f020' }}
+          UPSTREAM_REF: ${{ inputs.ref || '3b4e3c6c69c0f107756fd4d5f397e05ef38feff4' }}
         run: |
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$TAG" release-assets/*.whl release-assets/SHA256SUMS \
